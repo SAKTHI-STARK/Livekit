@@ -100,4 +100,4 @@ instructions = f"""
             * If the user at any time says "Connect me to an advisor", acknowledge that (e.g., "Sure, I will connect you to our agent") and *transfer the call to a customer agent.*
             """
 
-first_msg=f"Hello, is this Mr.{data['customer_name_full']}? I’m calling from Discovery Insurance regarding your motor insurance policy"
+first_msg=f"Hello, is this Mr {data['customer_name_full']}? I’m calling from Discovery Insurance regarding your motor insurance policy"
