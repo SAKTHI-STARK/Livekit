@@ -17,11 +17,16 @@ const createToken = (
   const at = new AccessToken(apiKey, apiSecret, userInfo);
   at.addGrant(grant);
   if (agentName) {
+    // Forward request metadata (if provided) to the agent dispatch so the
+    // agent entrypoint can access user info (name, email, etc.) when it starts.
+    // `userInfo.metadata` is expected to be a JSON string, but any string is allowed.
     at.roomConfig = new RoomConfiguration({
       agents: [
         new RoomAgentDispatch({
           agentName: agentName,
-          metadata: '{"user_id": "12345"}',
+          // cast to any to avoid potential cross-package typing issues when building
+          // (we only need the runtime string metadata to be forwarded)
+          metadata: (userInfo.metadata as any) || undefined,
         }),
       ],
     });
