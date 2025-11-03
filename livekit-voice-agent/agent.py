@@ -44,16 +44,8 @@ async def entrypoint(ctx: agents.JobContext):
 
     try:
         participant = await ctx.wait_for_participant()
-        user_name = None
-        if participant and getattr(participant, "metadata", None):
-            try:
-                md = json.loads(participant.metadata)
-                user_name = md.get("name") or md.get("username") or md.get("user_name")
-            except Exception:
-                user_name = participant.metadata
-
-        if not user_name:
-            user_name = getattr(participant, "identity", None) or "there"
+        # Get name from participant name field (User section in UI)
+        user_name = participant.name if participant and participant.name else "there"
         await session.say(f"Hello {user_name}! This is Nova from Discovery Insurance. To assist you better, could you please let me know your preferred language for this conversation? We offer support in both English and Hindi.")
 
     except Exception:

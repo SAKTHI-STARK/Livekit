@@ -318,19 +318,18 @@ export default function Playground({
           <div className="flex flex-col gap-2">
             <EditableNameValueRow
               name="Name"
-              value={
-                roomState === ConnectionState.Connected
-                  ? localParticipant?.name || ""
-                  : config.settings.participant_name || ""
-              }
+              value={localParticipant?.name || config.settings.participant_name || ""}
               valueColor={`${config.settings.theme_color}-500`}
               onValueChange={(value) => {
                 const newSettings = { ...config.settings };
                 newSettings.participant_name = value;
                 setUserSettings(newSettings);
+                if (roomState === ConnectionState.Connected && localParticipant) {
+                  localParticipant.setName(value);
+                }
               }}
               placeholder="Auto"
-              editable={roomState !== ConnectionState.Connected}
+              editable={true}
             />
             <EditableNameValueRow
               name="Identity"

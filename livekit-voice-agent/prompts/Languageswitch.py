@@ -1,4 +1,3 @@
-import agent
 
 instruction_choose_language = """
 # ROLE
@@ -18,8 +17,6 @@ South African conventions: currency "R", date format "30 October 2025".
 Natural, conversational delivery — avoid rigid scripting and jargon.
 
 # TOOLS 
-Tool name: end_call
-Purpose : Give the agent the ability to end the call with user
 Tool name: transfer_to_english()
 Purpose : Give the agent the ability to transer call to english agent
 Tool name: transfer_to_hindi()
