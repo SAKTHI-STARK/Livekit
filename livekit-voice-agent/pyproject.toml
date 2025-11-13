@@ -3,7 +3,7 @@ name = "livekit-voice-agent"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
-    "livekit-agents[deepgram,elevenlabs,silero,turn-detector]~=1.2",
+    "livekit-agents[deepgram,elevenlabs,google,silero,turn-detector]~=1.2",
     "livekit-plugins-noise-cancellation~=0.2",
     "python-dotenv>=1.2.1",
     "livekit-blingfire==1.0.0",

@@ -1,17 +1,23 @@
 from dotenv import load_dotenv
-load_dotenv(".env.local")
-import json
 from livekit import agents
-from livekit.agents import AgentSession, Agent, RoomInputOptions, UserStateChangedEvent, function_tool, RunContext
+from livekit.agents import (
+    AgentSession,
+    Agent,
+    RoomInputOptions,
+    UserStateChangedEvent,
+    function_tool,
+    RunContext,
+)
 from agent.EnglishAgent import EnglishAssistant as EnglishAgent
 from agent.HindiAgent import HindiAssistant as HindiAgent
-from livekit.plugins import noise_cancellation, silero, elevenlabs
+from livekit.plugins import noise_cancellation, silero, elevenlabs, deepgram, google
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 import prompts.Languageswitch as LS
+load_dotenv(".env.local")
 
 class LanChooseAgent(Agent):
-    def __init__(self) -> None:
-        super().__init__(instructions=LS.instruction_choose_language)
+    def __init__(self, instructions=None) -> None:
+        super().__init__(instructions=instructions)
 
     @function_tool()
     async def transfer_to_english(self, context: RunContext):
@@ -23,38 +29,53 @@ class LanChooseAgent(Agent):
 
 
 async def entrypoint(ctx: agents.JobContext):
+    await ctx.connect()
+    print("Connected to LiveKit room")
+
     session = AgentSession(
-        stt="deepgram/nova-2-general",
-        llm="openai/gpt-4.1-mini",
+        stt=deepgram.STTv2(
+            model="flux-general-en",
+            eager_eot_threshold=0.4,
+        ),
+        llm=google.LLM(model="gemini-2.0-flash"),
         tts=elevenlabs.TTS(
             voice_id="ODq5zmih8GrVes37Dizd",
-            model="eleven_multilingual_v2"
+            model="eleven_multilingual_v2",
         ),
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
     )
 
-    await session.start(
-        room=ctx.room,
-        agent=LanChooseAgent(),
-        room_input_options=RoomInputOptions(
-            noise_cancellation=noise_cancellation.BVC(),
-        ),
-    )
-
     try:
         participant = await ctx.wait_for_participant()
-        # Get name from participant name field (User section in UI)
         user_name = participant.name if participant and participant.name else "there"
-        await session.say(f"Hello {user_name}! This is Nova from Discovery Insurance. To assist you better, could you please let me know your preferred language for this conversation? We offer support in both English and Hindi.")
+        attributes = participant.attributes or {}
+        first_message = attributes.get("first message", "Hello {user_name}")
+        system_prompt = attributes.get("system_prompt")
 
-    except Exception:
-        pass
+        await session.start(
+            room=ctx.room,
+            agent=LanChooseAgent(instructions=system_prompt),
+            room_input_options=RoomInputOptions(
+                noise_cancellation=None  # or noise_cancellation.BVC()
+            ),
+        )
+
+        await session.say(first_message.format(user_name=user_name))
+
+    except Exception as e:
+        print(f" Exception: {e}")
 
     @session.on("user_state_changed")
-    def on_user_state_changed(ev: UserStateChangedEvent):  
-        if ev.new_state == 'away':
-             session.generate_reply(instructions="Please check with the user if user is still with us like e.g.'Please let me know if you’re still with us' or 'Hey, are you still there?' after that wait for user response then proceed further")
+    def on_user_state_changed(ev: UserStateChangedEvent):
+        if ev.new_state == "away":
+            session.generate_reply(
+                instructions="Please check with the user if they are still here, e.g. 'Hey, are you still there?'"
+            )
+    await ctx.wait_for_disconnect()
+    await ctx.shutdown()
+    print("Shutdown complete")
+
 
 if __name__ == "__main__":
     agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
