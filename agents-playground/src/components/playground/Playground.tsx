@@ -90,6 +90,15 @@ export default function Playground({
 
     const handleGetUserLocation = async (data: RpcInvocationData): Promise<string> => {
       try {
+        console.log("[RPC] getUserLocation invoked by agent, data:", data);
+        try {
+          if (typeof window !== "undefined") {
+            // Notify user that an agent requested location
+            window.alert("Agent requested your location (getUserLocation). Please allow geolocation to share your location.");
+          }
+        } catch (e) {
+          console.warn("[RPC] Could not show alert to user", e);
+        }
         let params: any = {};
         try {
           params = typeof data.payload === "string" ? JSON.parse(data.payload) : data.payload || {};
