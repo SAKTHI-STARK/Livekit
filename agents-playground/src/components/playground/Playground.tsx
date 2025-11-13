@@ -25,18 +25,19 @@ import {
   useRoomContext,
   useParticipantAttributes,
 } from "@livekit/components-react";
-import { ConnectionState, LocalParticipant, Track } from "livekit-client";
+import {
+  ConnectionState,
+  LocalParticipant,
+  Track,
+  RpcError,
+  RpcInvocationData,
+} from "livekit-client";
 import { QRCodeSVG } from "qrcode.react";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import tailwindTheme from "../../lib/tailwindTheme.preval";
 import { EditableNameValueRow } from "@/components/config/NameValueRow";
 import { AttributesInspector } from "@/components/config/AttributesInspector";
 import { RpcPanel } from "./RpcPanel";
-
-export interface PlaygroundMeta {
-  name: string;
-  value: string;
-}
 
 export interface PlaygroundProps {
   logo?: ReactNode;
@@ -55,27 +56,88 @@ export default function Playground({
   const { name } = useRoomInfo();
   const [transcripts, setTranscripts] = useState<ChatMessageType[]>([]);
   const { localParticipant } = useLocalParticipant();
-
   const voiceAssistant = useVoiceAssistant();
-
   const roomState = useConnectionState();
   const tracks = useTracks();
   const room = useRoomContext();
 
   const [rpcMethod, setRpcMethod] = useState("");
   const [rpcPayload, setRpcPayload] = useState("");
-  const [showRpc, setShowRpc] = useState(false);
+  const [rpcResponse, setRpcResponse] = useState<string | null>(null);
+  const [rpcError, setRpcError] = useState<string | null>(null);
 
+  /* --------------------------------------------------------------------- *
+   *  1. ENABLE MIC ON CONNECT
+   * --------------------------------------------------------------------- */
   useEffect(() => {
-    if (roomState === ConnectionState.Connected) {
-      localParticipant.setMicrophoneEnabled(config.settings.inputs.mic);
+    console.log("[Playground] roomState →", roomState);
+    if (roomState === ConnectionState.Connected && localParticipant) {
+      console.log("[Playground] Enabling mic:", config.settings.inputs.mic);
+      localParticipant.setMicrophoneEnabled(config.settings.inputs.mic).catch((err) => {
+        console.error("[Playground] Failed to set mic:", err);
+      });
     }
-  }, [config, localParticipant, roomState]);
+  }, [config.settings.inputs.mic, localParticipant, roomState]);
 
+  /* --------------------------------------------------------------------- *
+   *  2. REGISTER CLIENT-SIDE RPC METHOD (getUserLocation) – CLIENT ← AGENT
+   * --------------------------------------------------------------------- */
+  useEffect(() => {
+    if (!localParticipant) {
+      console.log("[RPC] No localParticipant – skipping getUserLocation registration");
+      return;
+    }
+
+    const handleGetUserLocation = async (data: RpcInvocationData): Promise<string> => {
+      try {
+        let params: any = {};
+        try {
+          params = typeof data.payload === "string" ? JSON.parse(data.payload) : data.payload || {};
+        } catch (e) {
+          params = data.payload || {};
+        }
+
+        const position: GeolocationPosition = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: params.highAccuracy ?? false,
+            // The LiveKit RPC invocation provides `responseTimeout` on the data
+            timeout: (data as any).responseTimeout ?? undefined,
+          });
+        });
+
+        return JSON.stringify({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      } catch (error) {
+        // Use RpcError so the agent receives an application error with message
+        throw new RpcError(1, "Could not retrieve user location");
+      }
+    };
+
+    console.log("[RPC] Registering client method: getUserLocation");
+    try {
+      localParticipant.registerRpcMethod("getUserLocation", handleGetUserLocation);
+    } catch (err) {
+      console.error("[RPC] Failed to register getUserLocation:", err);
+    }
+
+    return () => {
+      console.log("[RPC] Unregistering getUserLocation");
+      try {
+        localParticipant.unregisterRpcMethod("getUserLocation");
+      } catch (err) {
+        console.warn("[RPC] unregister error (ignore):", err);
+      }
+    };
+  }, [localParticipant]);
+
+  /* --------------------------------------------------------------------- *
+   *  3. FIND TRACKS
+   * --------------------------------------------------------------------- */
   const agentVideoTrack = tracks.find(
-    (trackRef) =>
-      trackRef.publication.kind === Track.Kind.Video &&
-      trackRef.participant.isAgent,
+    (t) =>
+      t.publication.kind === Track.Kind.Video && t.participant.isAgent,
   );
 
   const localTracks = tracks.filter(
@@ -91,32 +153,38 @@ export default function Playground({
     ({ source }) => source === Track.Source.Microphone,
   );
 
-  const onDataReceived = useCallback(
-    (msg: any) => {
-      if (msg.topic === "transcription") {
-        const decoded = JSON.parse(
-          new TextDecoder("utf-8").decode(msg.payload),
-        );
-        let timestamp = new Date().getTime();
-        if ("timestamp" in decoded && decoded.timestamp > 0) {
-          timestamp = decoded.timestamp;
-        }
-        setTranscripts([
-          ...transcripts,
+  /* --------------------------------------------------------------------- *
+   *  4. DATA CHANNEL (transcription)
+   * --------------------------------------------------------------------- */
+  const onDataReceived = useCallback((msg: any) => {
+    console.log("[DataChannel] raw →", msg);
+    if (msg.topic === "transcription") {
+      try {
+        const decoded = JSON.parse(new TextDecoder("utf-8").decode(msg.payload));
+        console.log("[DataChannel] transcription →", decoded);
+        const timestamp = decoded.timestamp > 0 ? decoded.timestamp : Date.now();
+        setTranscripts((prev) => [
+          ...prev,
           {
             name: "You",
             message: decoded.text,
-            timestamp: timestamp,
+            timestamp,
             isSelf: true,
           },
         ]);
+      } catch (e) {
+        console.error("[DataChannel] JSON parse error:", e);
       }
-    },
-    [transcripts],
-  );
+    }
+  }, []);
 
+  useDataChannel(onDataReceived);
 
+  /* --------------------------------------------------------------------- *
+   *  5. THEME COLOR
+   * --------------------------------------------------------------------- */
   useEffect(() => {
+    console.log("[Theme] Updating --lk-theme-color →", config.settings.theme_color);
     document.body.style.setProperty(
       "--lk-theme-color",
       // @ts-ignore
@@ -128,21 +196,24 @@ export default function Playground({
     );
   }, [config.settings.theme_color]);
 
+  /* --------------------------------------------------------------------- *
+   *  6. AUDIO VISUALIZER
+   * --------------------------------------------------------------------- */
   const audioTileContent = useMemo(() => {
-    const disconnectedContent = (
+    const disconnected = (
       <div className="flex flex-col items-center justify-center gap-2 text-gray-700 text-center w-full">
         No agent audio track. Connect to get started.
       </div>
     );
 
-    const waitingContent = (
+    const waiting = (
       <div className="flex flex-col items-center gap-2 text-gray-700 text-center w-full">
         <LoadingSVG />
         Waiting for agent audio track…
       </div>
     );
 
-    const visualizerContent = (
+    const visualizer = (
       <div
         className={`flex items-center justify-center w-full h-48 [--lk-va-bar-width:30px] [--lk-va-bar-gap:20px] [--lk-fg:var(--lk-theme-color)]`}
       >
@@ -155,22 +226,14 @@ export default function Playground({
       </div>
     );
 
-    if (roomState === ConnectionState.Disconnected) {
-      return disconnectedContent;
-    }
+    if (roomState === ConnectionState.Disconnected) return disconnected;
+    if (!voiceAssistant.audioTrack) return waiting;
+    return visualizer;
+  }, [voiceAssistant.audioTrack, voiceAssistant.state, roomState]);
 
-    if (!voiceAssistant.audioTrack) {
-      return waitingContent;
-    }
-
-    return visualizerContent;
-  }, [
-    voiceAssistant.audioTrack,
-    config.settings.theme_color,
-    roomState,
-    voiceAssistant.state,
-  ]);
-
+  /* --------------------------------------------------------------------- *
+   *  7. CHAT TILE
+   * --------------------------------------------------------------------- */
   const chatTileContent = useMemo(() => {
     if (voiceAssistant.agent) {
       return (
@@ -181,29 +244,64 @@ export default function Playground({
       );
     }
     return <></>;
-  }, [
-    config.settings.theme_color,
-    voiceAssistant.audioTrack,
-    voiceAssistant.agent,
-  ]);
+  }, [config.settings.theme_color, voiceAssistant.audioTrack, voiceAssistant.agent]);
 
+  /* --------------------------------------------------------------------- *
+   *  8. CLIENT → AGENT RPC CALL
+   * --------------------------------------------------------------------- */
   const handleRpcCall = useCallback(async () => {
     if (!voiceAssistant.agent || !room) {
-      throw new Error("No agent or room available");
+      const err = "No agent or room available";
+      console.error("[RPC] →→→", err);
+      setRpcError(err);
+      return;
     }
 
-    const response = await room.localParticipant.performRpc({
-      destinationIdentity: voiceAssistant.agent.identity,
+    setRpcResponse(null);
+    setRpcError(null);
+
+    let payloadObj: any = {};
+    if (rpcPayload.trim()) {
+      try {
+        payloadObj = JSON.parse(rpcPayload);
+      } catch (e) {
+        console.error("[RPC] Invalid JSON payload:", e);
+        setRpcError("Invalid JSON in payload");
+        return;
+      }
+    }
+
+    console.log("[RPC] →→→ Calling agent RPC", {
       method: rpcMethod,
-      payload: rpcPayload,
+      destination: voiceAssistant.agent.identity,
+      payload: payloadObj,
     });
-    return response;
+
+    try {
+      const response = await room.localParticipant.performRpc({
+        destinationIdentity: voiceAssistant.agent.identity,
+        method: rpcMethod,
+        payload: payloadObj,
+      });
+
+      console.log("[RPC] ←←← Response:", response);
+      setRpcResponse(typeof response === "string" ? response : JSON.stringify(response, null, 2));
+    } catch (err: any) {
+      console.error("[RPC] ←←← ERROR:", err);
+      setRpcError(err?.message ?? String(err));
+    }
   }, [room, rpcMethod, rpcPayload, voiceAssistant.agent]);
 
+  /* --------------------------------------------------------------------- *
+   *  9. AGENT ATTRIBUTES
+   * --------------------------------------------------------------------- */
   const agentAttributes = useParticipantAttributes({
     participant: voiceAssistant.agent,
   });
 
+  /* --------------------------------------------------------------------- *
+   *  10. SETTINGS TILE (with RPC panel + response UI)
+   * --------------------------------------------------------------------- */
   const settingsTileContent = useMemo(() => {
     return (
       <div className="flex flex-col h-full w-full items-start overflow-y-auto">
@@ -367,16 +465,32 @@ export default function Playground({
           </div>
         </ConfigurationPanelItem>
 
+        {/* RPC PANEL */}
         {roomState === ConnectionState.Connected && voiceAssistant.agent && (
-          <RpcPanel
-            config={config}
-            rpcMethod={rpcMethod}
-            rpcPayload={rpcPayload}
-            setRpcMethod={setRpcMethod}
-            setRpcPayload={setRpcPayload}
-            handleRpcCall={handleRpcCall}
-          />
+          <ConfigurationPanelItem title="RPC (Client → Agent)">
+            <RpcPanel
+              config={config}
+              rpcMethod={rpcMethod}
+              rpcPayload={rpcPayload}
+              setRpcMethod={setRpcMethod}
+              setRpcPayload={setRpcPayload}
+              handleRpcCall={handleRpcCall}
+            />
+
+            {rpcResponse && (
+              <div className="mt-2 p-2 bg-gray-800 rounded text-xs whitespace-pre-wrap">
+                <strong>Response:</strong>
+                <pre>{rpcResponse}</pre>
+              </div>
+            )}
+            {rpcError && (
+              <div className="mt-2 p-2 bg-red-900 rounded text-xs">
+                <strong>Error:</strong> {rpcError}
+              </div>
+            )}
+          </ConfigurationPanelItem>
         )}
+
         {localMicTrack && (
           <ConfigurationPanelItem
             title="Microphone"
@@ -385,6 +499,7 @@ export default function Playground({
             <AudioInputTile trackRef={localMicTrack} />
           </ConfigurationPanelItem>
         )}
+
         <div className="w-full">
           <ConfigurationPanelItem title="Color">
             <ColorPicker
@@ -398,6 +513,7 @@ export default function Playground({
             />
           </ConfigurationPanelItem>
         </div>
+
         {config.show_qr && (
           <div className="w-full">
             <ConfigurationPanelItem title="QR Code">
@@ -408,35 +524,32 @@ export default function Playground({
       </div>
     );
   }, [
-    config.description,
-    config.settings,
-    config.show_qr,
+    config,
+    roomState,
     localParticipant,
     name,
-    roomState,
-    localCameraTrack,
-    localScreenTrack,
     localMicTrack,
     themeColors,
     setUserSettings,
     voiceAssistant.agent,
+    agentAttributes,
     rpcMethod,
     rpcPayload,
     handleRpcCall,
-    showRpc,
-    setShowRpc,
+    rpcResponse,
+    rpcError,
   ]);
 
-  let mobileTabs: PlaygroundTab[] = [];
+  /* --------------------------------------------------------------------- *
+   *  11. MOBILE TABS
+   * --------------------------------------------------------------------- */
+  const mobileTabs: PlaygroundTab[] = [];
 
   if (config.settings.outputs.audio) {
     mobileTabs.push({
       title: "Audio",
       content: (
-        <PlaygroundTile
-          className="w-full h-full grow"
-          childrenClassName="justify-center"
-        >
+        <PlaygroundTile className="w-full h-full grow" childrenClassName="justify-center">
           {audioTileContent}
         </PlaygroundTile>
       ),
@@ -464,6 +577,9 @@ export default function Playground({
     ),
   });
 
+  /* --------------------------------------------------------------------- *
+   *  12. RENDER
+   * --------------------------------------------------------------------- */
   return (
     <>
       <PlaygroundHeader
@@ -473,14 +589,13 @@ export default function Playground({
         height={headerHeight}
         accentColor={config.settings.theme_color}
         connectionState={roomState}
-        onConnectClicked={() =>
-          onConnect(roomState === ConnectionState.Disconnected)
-        }
+        onConnectClicked={() => onConnect(roomState === ConnectionState.Disconnected)}
       />
       <div
         className={`flex gap-4 py-4 grow w-full selection:bg-${config.settings.theme_color}-900`}
         style={{ height: `calc(100% - ${headerHeight}px)` }}
       >
+        {/* Mobile */}
         <div className="flex flex-col grow basis-1/2 gap-4 h-full lg:hidden">
           <PlaygroundTabbedTile
             className="h-full"
@@ -488,6 +603,8 @@ export default function Playground({
             initialTab={mobileTabs.length - 1}
           />
         </div>
+
+        {/* Desktop – Audio */}
         <div
           className={`flex-col grow basis-1/2 gap-4 h-full hidden lg:${
             !config.settings.outputs.audio && !config.settings.outputs.video
@@ -495,7 +612,6 @@ export default function Playground({
               : "flex"
           }`}
         >
-    
           {config.settings.outputs.audio && (
             <PlaygroundTile
               title="Agent Audio"
@@ -507,6 +623,7 @@ export default function Playground({
           )}
         </div>
 
+        {/* Desktop – Chat */}
         {config.settings.chat && (
           <PlaygroundTile
             title="Chat"
@@ -515,6 +632,8 @@ export default function Playground({
             {chatTileContent}
           </PlaygroundTile>
         )}
+
+        {/* Desktop – Settings */}
         <PlaygroundTile
           padding={false}
           backgroundColor="gray-950"
