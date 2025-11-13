@@ -1,0 +1,45 @@
+Sakthivel M
+ Salem | sakthi492003@gmail.com | +91-7339428805
+ LinkedIn: sakthivelm003 | Portfolio: sakthivel003.netlify.app | GitHub: SAKTHI-STARK
+ Summary
+ Motivated and adaptable developer with strong problem-solving skills and a collaborative mindset. Known for
+ effective communication, attention to detail in design, and efficient time management. Continuously learning and
+ thriving in both individual and team environments. Experienced in delivering user-centric solutions across real
+world projects.
+ Education
+ Paavai College of Engineering, B.Tech in Artificial Intelligence and Data Science
+ • CGPA: 8.6/10.0
+ Dec 2021– May 2025
+ • Coursework: AWS Cloud Virtual Internship, Full Stack using Django, Online Portfolio using GitHub
+ Technologies
+ Languages: Python, Java, React.js, Node.js, SQL, JavaScript, HTML5, CSS
+ Technologies: VS Code, MySQL, MS Office, Power BI, GitHub, Canva, Figma, Django, Adobe Premiere Pro
+ Experience
+ Data Analyst Intern, Raj Software Solution, TN
+ June 2023– July 2023
+ • Conducted data collection, cleaning, preprocessing and visualizing, ensuring data integrity and preparing
+ datasets for analysis.
+ • Managed and manipulated numerical data using tools like NumPy and Pandas.
+ Software Developer Intern, Purie Robotics, TN
+ Feb 2025– Apr 2025
+ • Developed a custom ERP system using Python, Django, and MySQL to automate quotation generation, sales
+ reporting, and product management.
+ • Implemented role-based access control and user authentication using Django’s built-in auth system to ensure
+ secure, multi-department data access.
+ Publications
+ A Hybrid AI Framework for Legal Case Outcome Prediction
+ Prabhu S, Sakthivel M, Kannan K, Hari S, Hariharan P
+ 10.5281/zenodo.15266031
+ Projects
+ Apr 2025
+ AI System for Legal Case Outcome Prediction
+ github.com/Case_prediction
+ • Built an AI model using BERT and ML classifiers to predict legal case outcomes based on historical court
+ judgments and case descriptions.
+ • Applied NLP to preprocess legal text and extract contextual insights, achieving over 85% predicton accuracy.
+ • Demonstrated practical use of AI in the legal domain to aid in backlog reduction and judicial decision support.
+ Realtime E-commerce Price Comparison System
+ github/Web_scrapping
+ • Developed a web-based tool that scrapes product prices from multiple e-commerce platforms in real time using
+ web automation.
+ • Implemented alert notifications for price drops, enhancing user savings and decision-making
