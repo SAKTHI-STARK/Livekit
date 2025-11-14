@@ -1,3 +1,4 @@
+import os
 import json
 import traceback
 from dotenv import load_dotenv
@@ -21,6 +22,18 @@ from rag_engine import query_info
 
 # --- Load Environment Variables ---
 load_dotenv(".env.local")
+
+def load_user_data(file_path="user_data.json"):
+    if not os.path.exists(file_path):
+        print(f"JSON metadata file missing: {file_path}")
+        return {}
+
+    try:
+        with open(file_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print("Error loading metadata JSON:", e)
+        return {}
 
 
 # AGENT DEFINITION
@@ -68,10 +81,7 @@ class GenericAgent(Agent):
 
 # ENTRYPOINT FUNCTION
 async def entrypoint(ctx: agents.JobContext):
-    """Main entrypoint for the LiveKit agent."""
     await ctx.connect()
-    print("Connected to LiveKit room.")
-
     # Create the Agent Session
     session = AgentSession(
         stt=deepgram.STTv2(model="flux-general-en", eager_eot_threshold=0.4),
@@ -96,12 +106,21 @@ async def entrypoint(ctx: agents.JobContext):
         user_name = participant.name if participant and participant.name else "there"
         attributes = participant.attributes or {}
 
-        first_message = attributes.get("first message", "Hello {user_name}")
+        all_user_details = load_user_data()
+        user_data = all_user_details.get(user_name,{})
+
+        expiry_data = user_data.get("expiry_date")
+        date_of_birth = user_data.get("date_of_birth")
+        policy_number = user_data.get("policy_number")
+        monthly_premium_amt = user_data.get("monthly_premium_amt")
+        excess_amt = user_data.get("excess_amt")
+        
+        first_message = attributes.get("first message")
         system_prompt = attributes.get("system_prompt")
 
         await session.start(
             room=ctx.room,
-            agent=GenericAgent(instructions=system_prompt),
+            agent=GenericAgent(instructions=system_prompt.format(expiry_data=expiry_data,date_of_birth=date_of_birth,policy_number=policy_number,monthly_premium_amt=monthly_premium_amt,excess_amt=excess_amt)),
             room_input_options=RoomInputOptions(
                 noise_cancellation=None  # Change to noise_cancellation.NoiseCancellation() if needed
             ),
