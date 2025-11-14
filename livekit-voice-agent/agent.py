@@ -63,16 +63,16 @@ class GenericAgent(Agent):
 
     # Geolocation Tool
     @function_tool()
-    async def get_user_location(self, context: RunContext, high_accuracy: bool):
+    async def sent_link(self, context: RunContext):
         try:
             room = get_job_context().room
             participant_identity = next(iter(room.remote_participants))
 
             response = await room.local_participant.perform_rpc(
                 destination_identity=participant_identity,
-                method="getUserLocation",
-                payload=json.dumps({"highAccuracy": high_accuracy}),
-                response_timeout=10.0 if high_accuracy else 5.0,
+                method="sent_link",
+                payload="{}",
+                response_timeout=10.0,
             )
             return response
         except Exception as e:
@@ -120,7 +120,7 @@ async def entrypoint(ctx: agents.JobContext):
 
         await session.start(
             room=ctx.room,
-            agent=GenericAgent(instructions=system_prompt.format(expiry_data=expiry_data,date_of_birth=date_of_birth,policy_number=policy_number,monthly_premium_amt=monthly_premium_amt,excess_amt=excess_amt)),
+            agent=GenericAgent(instructions=system_prompt.format(user_name=user_name,expiry_data=expiry_data,date_of_birth=date_of_birth,policy_number=policy_number,monthly_premium_amt=monthly_premium_amt,excess_amt=excess_amt)),
             room_input_options=RoomInputOptions(
                 noise_cancellation=None  # Change to noise_cancellation.NoiseCancellation() if needed
             ),
@@ -133,9 +133,9 @@ async def entrypoint(ctx: agents.JobContext):
         traceback.print_exc()
 
     # Shutdown Sequence
-    await ctx.wait_for_disconnect()
-    await ctx.shutdown()
-    print("Shutdown complete.")
+    # await ctx.wait_for_disconnect()
+    # await ctx.shutdown()
+    # print("Shutdown complete.")
 
 # MAIN EXECUTION
 if __name__ == "__main__":

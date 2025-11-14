@@ -83,63 +83,39 @@ export default function Playground({
    *  2. REGISTER CLIENT-SIDE RPC METHOD (getUserLocation) – CLIENT ← AGENT
    * --------------------------------------------------------------------- */
   useEffect(() => {
-    if (!localParticipant) {
-      console.log("[RPC] No localParticipant – skipping getUserLocation registration");
-      return;
-    }
+  if (!localParticipant) {
+    console.log("[RPC] No localParticipant – skip");
+    return;
+  }
 
-    const handleGetUserLocation = async (data: RpcInvocationData): Promise<string> => {
-      try {
-        console.log("[RPC] getUserLocation invoked by agent, data:", data);
-        try {
-          if (typeof window !== "undefined") {
-            // Notify user that an agent requested location
-            window.alert("Agent requested your location (getUserLocation). Please allow geolocation to share your location.");
-          }
-        } catch (e) {
-          console.warn("[RPC] Could not show alert to user", e);
-        }
-        let params: any = {};
-        try {
-          params = typeof data.payload === "string" ? JSON.parse(data.payload) : data.payload || {};
-        } catch (e) {
-          params = data.payload || {};
-        }
-
-        const position: GeolocationPosition = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: params.highAccuracy ?? false,
-            // The LiveKit RPC invocation provides `responseTimeout` on the data
-            timeout: (data as any).responseTimeout ?? undefined,
-          });
-        });
-
-        return JSON.stringify({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-      } catch (error) {
-        // Use RpcError so the agent receives an application error with message
-        throw new RpcError(1, "Could not retrieve user location");
-      }
-    };
-
-    console.log("[RPC] Registering client method: getUserLocation");
+  const handleSentLink = async () => {
     try {
-      localParticipant.registerRpcMethod("getUserLocation", handleGetUserLocation);
-    } catch (err) {
-      console.error("[RPC] Failed to register getUserLocation:", err);
-    }
-
-    return () => {
-      console.log("[RPC] Unregistering getUserLocation");
-      try {
-        localParticipant.unregisterRpcMethod("getUserLocation");
-      } catch (err) {
-        console.warn("[RPC] unregister error (ignore):", err);
+      if (typeof window !== "undefined") {
+        window.alert("Agent send a renewal link!");
       }
-    };
-  }, [localParticipant]);
+      return "ok"; // agent expects string return
+    } catch (err) {
+      throw new RpcError(1, "Alert failed");
+    }
+  };
+
+  console.log("[RPC] Registering sent_link");
+  try {
+    localParticipant.registerRpcMethod("sent_link", handleSentLink);
+  } catch (err) {
+    console.error("[RPC] Failed to register sent_link:", err);
+  }
+
+  return () => {
+    console.log("[RPC] Unregistering sent_link");
+    try {
+      localParticipant.unregisterRpcMethod("sent_link");
+    } catch (err) {
+      console.warn("[RPC] unregister error:", err);
+    }
+  };
+}, [localParticipant]);
+
 
   /* --------------------------------------------------------------------- *
    *  3. FIND TRACKS
