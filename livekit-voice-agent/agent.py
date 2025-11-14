@@ -11,6 +11,8 @@ from livekit.agents import (
     function_tool,
     RunContext,
     get_job_context,
+    metrics, 
+    MetricsCollectedEvent,
 )
 from livekit.plugins import noise_cancellation, silero, elevenlabs, deepgram, google
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -81,6 +83,7 @@ class GenericAgent(Agent):
 
 # ENTRYPOINT FUNCTION
 async def entrypoint(ctx: agents.JobContext):
+    usage_collector = metrics.UsageCollector()
     await ctx.connect()
     # Create the Agent Session
     session = AgentSession(
@@ -99,6 +102,17 @@ async def entrypoint(ctx: agents.JobContext):
     def on_user_state_changed(ev: UserStateChangedEvent):
         if ev.new_state == "away":
             session.generate_reply(instructions="Hey, are you still there?")
+    
+    @session.on("metrics_collected")
+    def _on_metrics_collected(ev: MetricsCollectedEvent):
+        usage_collector.collect(ev.metrics)
+
+    # Shutdown logging (fixed: define function, then add callback outside body)
+    async def log_usage():
+        summary = usage_collector.get_summary()
+        print(f"Usage: {summary}", flush=True)
+
+    ctx.add_shutdown_callback(log_usage)
 
     # Session Initialization
     try:
