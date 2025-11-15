@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import traceback
 from dotenv import load_dotenv
@@ -18,24 +19,13 @@ from livekit.plugins import noise_cancellation, silero, elevenlabs, deepgram, go
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 # --- Local Imports ---
-from agent.EnglishAgent import EnglishAssistant as EnglishAgent
-from agent.HindiAgent import HindiAssistant as HindiAgent
-from rag_engine import query_info
+# from EnglishAgent import EnglishAssistant as EnglishAgent
+# from HindiAgent import HindiAssistant as HindiAgent
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from VariableHandler.DynamicVariableHandler import DynamicVariableHandler
 
 # --- Load Environment Variables ---
 load_dotenv(".env.local")
-
-def load_user_data(file_path="user_data.json"):
-    if not os.path.exists(file_path):
-        print(f"JSON metadata file missing: {file_path}")
-        return {}
-
-    try:
-        with open(file_path, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        print("Error loading metadata JSON:", e)
-        return {}
 
 
 # AGENT DEFINITION
@@ -44,24 +34,13 @@ class GenericAgent(Agent):
         super().__init__(instructions=instructions)
 
     # Language Switching Tools
-    @function_tool()
-    async def transfer_to_english(self, context: RunContext):
-        return EnglishAgent(chat_ctx=self.chat_ctx), "Transferring to English."
+    # @function_tool()
+    # async def transfer_to_english(self, context: RunContext):
+    #     return EnglishAgent(chat_ctx=self.chat_ctx), "Transferring to English."
 
-    @function_tool()
-    async def transfer_to_hindi(self, context: RunContext):
-        return HindiAgent(chat_ctx=self.chat_ctx), "Transferring to Hindi."
-
-    # RAG Query Tool
-    @function_tool()
-    async def query_info_tool(self, query: str) -> str:
-        try:
-            result = await query_info(query)
-            # print("RAG query result:", result)
-            return result
-        except Exception as e:
-            print("Error in RAG query:", e)
-            return "Sorry, I couldn't fetch the information right now."
+    # @function_tool()
+    # async def transfer_to_hindi(self, context: RunContext):
+    #     return HindiAgent(chat_ctx=self.chat_ctx), "Transferring to Hindi."
 
     # Geolocation Tool
     @function_tool()
@@ -113,43 +92,35 @@ async def entrypoint(ctx: agents.JobContext):
         print(f"Usage: {summary}", flush=True)
 
     ctx.add_shutdown_callback(log_usage)
-
-    # Session Initialization
     try:
         participant = await ctx.wait_for_participant()
         user_name = participant.name if participant and participant.name else "there"
         attributes = participant.attributes or {}
 
-        all_user_details = load_user_data()
-        user_data = all_user_details.get(user_name,{})
-
-        expiry_data = user_data.get("expiry_date")
-        date_of_birth = user_data.get("date_of_birth")
-        policy_number = user_data.get("policy_number")
-        monthly_premium_amt = user_data.get("monthly_premium_amt")
-        excess_amt = user_data.get("excess_amt")
-        
         first_message = attributes.get("first message")
         system_prompt = attributes.get("system_prompt")
 
+        # Use VariableHandler to load user data, populate variables, and resolve templates
+        var_handler = DynamicVariableHandler()
+        resolved_first_message, resolved_system_prompt = var_handler.load_and_resolve(
+            user_name=user_name,
+            first_message=first_message,
+            system_prompt=system_prompt,
+        )
+
         await session.start(
             room=ctx.room,
-            agent=GenericAgent(instructions=system_prompt.format(user_name=user_name,expiry_data=expiry_data,date_of_birth=date_of_birth,policy_number=policy_number,monthly_premium_amt=monthly_premium_amt,excess_amt=excess_amt)),
+            agent=GenericAgent(instructions=resolved_system_prompt),
             room_input_options=RoomInputOptions(
                 noise_cancellation=None  # Change to noise_cancellation.NoiseCancellation() if needed
             ),
         )
 
-        await session.say(first_message.format(user_name=user_name))
+        await session.say(resolved_first_message)
 
     except Exception as e:
         print("Exception during session setup:", e)
         traceback.print_exc()
-
-    # Shutdown Sequence
-    # await ctx.wait_for_disconnect()
-    # await ctx.shutdown()
-    # print("Shutdown complete.")
 
 # MAIN EXECUTION
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 from livekit.agents import Agent, function_tool, RunContext
-from prompts import InsurenceExpire as IPrompts
+from ..prompts import InsurenceExpire as IPrompts
 
 class EnglishAssistant(Agent):
     def __init__(self,chat_ctx=None) -> None:
