@@ -1,5 +1,5 @@
 from livekit.agents import Agent, function_tool, RunContext
-from prompts import InsurenceExpireHindi as IPromptsHindi
+from ..prompts import InsurenceExpireHindi as IPromptsHindi
 class HindiAssistant(Agent):
     def __init__(self,chat_ctx=None) -> None:
         super().__init__(
