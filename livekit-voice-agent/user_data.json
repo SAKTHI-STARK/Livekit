@@ -1,0 +1,16 @@
+{
+  "john_doe": {
+    "expiry_date": "2025-12-31",
+    "date_of_birth": "04-09-2003",
+    "policy_number": "POL12345",
+    "monthly_premium_amt": 4200,
+    "excess_amt": 2000
+  },
+  "sakthi": {
+    "expiry_date": "2026-12-10",
+    "date_of_birth": "04-09-2003",
+    "policy_number": "SV123",
+    "monthly_premium_amt": 3500,
+    "excess_amt": 1500
+  }
+}

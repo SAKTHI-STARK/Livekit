@@ -1,3 +1,4 @@
+import os
 import json
 import traceback
 from dotenv import load_dotenv
@@ -10,6 +11,8 @@ from livekit.agents import (
     function_tool,
     RunContext,
     get_job_context,
+    metrics, 
+    MetricsCollectedEvent,
 )
 from livekit.plugins import noise_cancellation, silero, elevenlabs, deepgram, google
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -21,6 +24,18 @@ from rag_engine import query_info
 
 # --- Load Environment Variables ---
 load_dotenv(".env.local")
+
+def load_user_data(file_path="user_data.json"):
+    if not os.path.exists(file_path):
+        print(f"JSON metadata file missing: {file_path}")
+        return {}
+
+    try:
+        with open(file_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print("Error loading metadata JSON:", e)
+        return {}
 
 
 # AGENT DEFINITION
@@ -50,16 +65,16 @@ class GenericAgent(Agent):
 
     # Geolocation Tool
     @function_tool()
-    async def get_user_location(self, context: RunContext, high_accuracy: bool):
+    async def sent_link(self, context: RunContext):
         try:
             room = get_job_context().room
             participant_identity = next(iter(room.remote_participants))
 
             response = await room.local_participant.perform_rpc(
                 destination_identity=participant_identity,
-                method="getUserLocation",
-                payload=json.dumps({"highAccuracy": high_accuracy}),
-                response_timeout=10.0 if high_accuracy else 5.0,
+                method="sent_link",
+                payload="{}",
+                response_timeout=10.0,
             )
             return response
         except Exception as e:
@@ -68,10 +83,8 @@ class GenericAgent(Agent):
 
 # ENTRYPOINT FUNCTION
 async def entrypoint(ctx: agents.JobContext):
-    """Main entrypoint for the LiveKit agent."""
+    usage_collector = metrics.UsageCollector()
     await ctx.connect()
-    print("Connected to LiveKit room.")
-
     # Create the Agent Session
     session = AgentSession(
         stt=deepgram.STTv2(model="flux-general-en", eager_eot_threshold=0.4),
@@ -89,6 +102,17 @@ async def entrypoint(ctx: agents.JobContext):
     def on_user_state_changed(ev: UserStateChangedEvent):
         if ev.new_state == "away":
             session.generate_reply(instructions="Hey, are you still there?")
+    
+    @session.on("metrics_collected")
+    def _on_metrics_collected(ev: MetricsCollectedEvent):
+        usage_collector.collect(ev.metrics)
+
+    # Shutdown logging (fixed: define function, then add callback outside body)
+    async def log_usage():
+        summary = usage_collector.get_summary()
+        print(f"Usage: {summary}", flush=True)
+
+    ctx.add_shutdown_callback(log_usage)
 
     # Session Initialization
     try:
@@ -96,12 +120,21 @@ async def entrypoint(ctx: agents.JobContext):
         user_name = participant.name if participant and participant.name else "there"
         attributes = participant.attributes or {}
 
-        first_message = attributes.get("first message", "Hello {user_name}")
+        all_user_details = load_user_data()
+        user_data = all_user_details.get(user_name,{})
+
+        expiry_data = user_data.get("expiry_date")
+        date_of_birth = user_data.get("date_of_birth")
+        policy_number = user_data.get("policy_number")
+        monthly_premium_amt = user_data.get("monthly_premium_amt")
+        excess_amt = user_data.get("excess_amt")
+        
+        first_message = attributes.get("first message")
         system_prompt = attributes.get("system_prompt")
 
         await session.start(
             room=ctx.room,
-            agent=GenericAgent(instructions=system_prompt),
+            agent=GenericAgent(instructions=system_prompt.format(user_name=user_name,expiry_data=expiry_data,date_of_birth=date_of_birth,policy_number=policy_number,monthly_premium_amt=monthly_premium_amt,excess_amt=excess_amt)),
             room_input_options=RoomInputOptions(
                 noise_cancellation=None  # Change to noise_cancellation.NoiseCancellation() if needed
             ),
@@ -114,9 +147,9 @@ async def entrypoint(ctx: agents.JobContext):
         traceback.print_exc()
 
     # Shutdown Sequence
-    await ctx.wait_for_disconnect()
-    await ctx.shutdown()
-    print("Shutdown complete.")
+    # await ctx.wait_for_disconnect()
+    # await ctx.shutdown()
+    # print("Shutdown complete.")
 
 # MAIN EXECUTION
 if __name__ == "__main__":
